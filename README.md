@@ -3,224 +3,10 @@
 A Hyprland plugin that makes chosen background colors transparent, per pixel, while keeping elements like text, icons, and images fully opaque.
 
 Unlike window opacity, which fades a whole window uniformly, hyprchromakey only touches pixels that
-match a color you nominate. A terminal with a solid background becomes a floating layer of text.
+match a color you nominate. 
 
 Supports **Hyprland 0.56 and up**. Plugins have no stable ABI, so it tracks current Hyprland
 rather than older releases.
-
----
-
-## Quick start
-
-```lua
--- the color to key out, and where to apply it
-hl.config { plugin = { hyprchromakey = { keys = "rgb(1e1e2e)" } } }
-
-hl.window_rule({ match = { class = "^(kitty)$" }, ["plugin:chromakey"] = "1" })
-```
-
-That's the whole minimum setup. `hyprctl chromakey` shows what the plugin thinks is going on,
-which is the first thing to check if nothing happens.
-
-Using a `.conf` config instead? Every example here has a hyprlang equivalent. See
-[hyprlang config](#hyprlang-config).
-
-
-## Choosing what gets keyed
-
-Targets are selected with ordinary window and layer rules, using the `plugin:chromakey` effect the
-plugin registers. The value is `1`/`on` to key with the default profile, `0`/`off` to exclude, or
-the name of a [profile](#profiles).
-
-The effect is a dynamic one, so in Lua it goes in as a quoted key:
-
-```lua
-hl.window_rule({ match = { class = "^(kitty|Alacritty)$" }, ["plugin:chromakey"] = "1" })
-hl.window_rule({ match = { title = "^(.*YouTube.*)$" },     ["plugin:chromakey"] = "0" })   -- exclude
-hl.window_rule({ match = { class = "^(foot)$" },            ["plugin:chromakey"] = "term" }) -- named profile
-
-hl.layer_rule({ match = { namespace = "^(waybar)$" },       ["plugin:chromakey"] = "1" })
-```
-
-Any `match:` property Hyprland supports works, so you can scope by `class`, `title`, `floating`,
-`fullscreen`, `xwayland`, `workspace`, `tag` and the rest.
-
-### Keying everything, with exceptions
-
-If most of your windows should be keyed, flip the default and list the exceptions instead:
-
-```lua
-hl.config { plugin = { hyprchromakey = {
-    default_windows = "on",   -- off | on | <profile name>
-    default_layers  = "off",
-}}}
-
-hl.window_rule({ match = { class = "^(firefox|mpv|imv)$" }, ["plugin:chromakey"] = "0" })
-```
-
-Rules always win over the default, so a single `plugin:chromakey 0` line carves a window out.
-
-
-## Key colors
-
-Keys go in the `keys` string, `;`-separated. Every key in a profile is tested against every pixel,
-so list as many as you like. `table.concat` keeps it readable:
-
-```lua
-hl.config { plugin = { hyprchromakey = { keys = table.concat({
-    "rgb(1e1e2e)",
-    "color rgb(313244), similarity 0.04, opacity 0.4",
-    "color #11111b, match hsv, smoothness 0.05",
-}, "; ") } } }
-```
-
-Within one key, fields are comma-separated `name value` pairs in any order. A lone value is taken
-as the color.
-
-| field | default | meaning |
-| --- | --- | --- |
-| `color` | required | key color; `rgb()`, `rgba()`, `#rrggbb`, `#rgb`, `0xAARRGGBB` |
-| `similarity` | `similarity` global | distance below which a pixel is fully keyed |
-| `smoothness` | `smoothness` global | fade band just above `similarity`, so antialiased glyph edges don't get a hard outline |
-| `opacity` | `opacity` global | alpha a fully keyed pixel ends up with; `0` is invisible, `0.4` is a tint |
-| `match` | `match` global | how the distance is measured, see below |
-| `profile` | `default` | which profile this key belongs to |
-
-### Match modes
-
-| mode | behaviour | good for |
-| --- | --- | --- |
-| `rgb` | largest per-channel difference | flat UI colors; the one you want almost always |
-| `hsv` | weighted hue, saturation and value difference | colors that shift slightly between themes or states |
-| `chroma` | hue and saturation only, brightness ignored entirely | shaded or gradient backgrounds of one color |
-
-`chroma` deliberately ignores how light or dark a pixel is, so it keys a whole gradient, but for
-the same reason, it treats black, white and grey as the same color. Use it with saturated key
-colors, not with the near-black backgrounds most terminals use.
-
-### Profiles
-
-Give keys a `profile` to group them, then point rules at that name. Keys without one land in
-`default`.
-
-```lua
-hl.config { plugin = { hyprchromakey = { keys = table.concat({
-    "rgb(1e1e2e)",                                  -- -> default
-    "profile term, color rgb(0b0b12)",
-    "profile term, color rgb(1a1a24), opacity 0.3",
-}, "; ") } } }
-
-hl.window_rule({ match = { class = "^(kitty)$" }, ["plugin:chromakey"] = "term" })
-```
-
-A profile holds up to 16 keys.
-
-
-## Options
-
-All under `plugin:hyprchromakey:`.
-
-```lua
-hl.config { plugin = { hyprchromakey = {
-    enabled = true,
-
-    -- defaults for keys that don't say otherwise
-    similarity = 0.08,
-    smoothness = 0.02,
-    opacity    = 0.0,
-    match      = "rgb",
-
-    -- only key pixels the client drew (nearly) opaque, so already-translucent
-    -- areas are left alone
-    min_alpha = 0.99,
-
-    -- applied to anything without a matching rule
-    default_windows = "off",
-    default_layers  = "off",
-
-    -- key only a window's main surface, leaving its popups and menus opaque
-    main_surface_only = false,
-
-    -- see "why it makes keyed windows a hair translucent" below
-    force_translucent = true,
-    translucency      = 0.9995,
-
-    -- the key colors themselves, `;`-separated
-    keys = "",
-}}}
-```
-
-### Tuning
-
-- Nothing keyed? Your color is probably slightly off. Screenshot the window and pick the
-  background pixel with a color picker, such as [hyprpicker](https://github.com/hyprwm/hyprpicker). The value you want is the exact sRGB one.
-- Text has a dark halo? That's antialiasing blending into the background color. Raise
-  `smoothness` a little; raising `similarity` too far starts eating the glyph edges instead.
-- Parts of an image or icon disappear? Lower `similarity`, or switch that key to `hsv`.
-
-
-## hyprlang config
-
-Everything above works the same in a `.conf` config, with one addition: key colors can be written
-as repeatable `chromakey` keywords instead of the `keys` string. Both accept identical field
-syntax, and you can use either.
-
-```conf
-# hyprland.conf
-chromakey = rgb(1e1e2e)
-chromakey = color rgb(181825), similarity 0.04
-chromakey = profile term, color rgb(11111b), similarity 0.05
-
-plugin {
-    hyprchromakey {
-        enabled    = true
-        similarity = 0.06
-        smoothness = 0.02
-
-        default_windows = off
-        default_layers  = off
-    }
-}
-
-windowrule = plugin:chromakey 1,    match:class ^(kitty)$
-windowrule = plugin:chromakey term, match:class ^(Alacritty)$
-windowrule = plugin:chromakey 0,    match:class ^(mpv|imv)$
-layerrule  = plugin:chromakey 1,    match:namespace ^(waybar)$
-
-bind = SUPER, T, exec, hyprctl dispatch chromakey:toggle
-```
-
-## Dispatchers
-
-`hl.dsp` only covers Hyprland's built-in dispatchers, so plugin ones are reached through
-`exec_cmd`:
-
-```lua
-hl.bind("SUPER + T", hl.dsp.exec_cmd("hyprctl dispatch chromakey:toggle"))
-```
-
-| dispatcher | what it does |
-| --- | --- |
-| `chromakey:toggle [profile]` | toggles keying on the active window |
-| `chromakey:togglewindow <window> [profile]` | same, for a window you name |
-| `chromakey:set <on\|off\|profile>` | sets the active window explicitly |
-| `chromakey:setwindow <window> <on\|off\|profile>` | sets a window you name |
-| `chromakey:reset` | drops all manual overrides, back to the rules |
-| `chromakey:reload` | rebuilds profiles and shaders |
-
-`<window>` is `class:<regex>`, `title:<regex>`, `address:0x...`, or a bare regex tried against
-both. Manual overrides outrank rules until `chromakey:reset`.
-
-
-## Inspecting
-
-```bash
-hyprctl chromakey
-```
-
-Prints whether the hooks installed, every profile and key as the plugin parsed it, and which
-windows and layers are keyed right now. `hyprctl -j chromakey` gives the same as JSON.
-
 
 ## Installation
 
@@ -241,6 +27,197 @@ hyprctl plugin load "$PWD/out/hyprchromakey.so"
 
 Plugins have no stable ABI, so rebuild after every Hyprland update. The plugin logs a warning if
 it detects it was built against a different Hyprland commit than the one running.
+
+
+## Configuration
+
+Everything, with every option at its default. Copy it, change the colors, delete what you don't
+need.
+
+```lua
+hl.config { plugin = { hyprchromakey = {
+    enabled = true,
+
+    -- defaults for keys that don't override them
+    similarity = 0.08,
+    smoothness = 0.02,
+    opacity    = 0.0,
+    match      = "rgb",
+
+    -- only key pixels the client drew (nearly) opaque
+    min_alpha = 0.99,
+
+    -- applied to anything without a matching rule: off | on | <profile name>
+    default_windows = "off",
+    default_layers  = "off",
+
+    -- key only a window's main surface, leaving popups and menus alone
+    main_surface_only = false,
+
+    -- makes keyed surfaces count as translucent so hyprland composites and blurs behind them. 
+    force_translucent = true,
+    translucency      = 0.9995,
+
+    -- the key colors, ";"-separated. Fields within a key are "name value", comma separated
+    keys = table.concat({
+        "rgb(1e1e2e)",
+        "color rgb(181825), similarity 0.04",
+        "color rgb(313244), opacity 0.4, match hsv",
+        "profile term, color rgb(11111b), similarity 0.05, smoothness 0.03",
+    }, "; "),
+}}}
+
+-- what gets keyed
+hl.window_rule({ match = { class = "^(kitty|Alacritty)$" }, ["plugin:chromakey"] = "1" })
+hl.window_rule({ match = { class = "^(foot)$" },            ["plugin:chromakey"] = "term" })
+hl.window_rule({ match = { class = "^(mpv|imv)$" },         ["plugin:chromakey"] = "0" })
+hl.layer_rule({  match = { namespace = "^(waybar)$" },      ["plugin:chromakey"] = "1" })
+```
+
+`hyprctl chromakey` shows what the plugin made of all that, and is the first thing to check if
+nothing happens.
+
+### hyprlang config
+
+The same thing in a `.conf`. The only difference is that key colors can also be written as
+repeatable `chromakey` keywords instead of the `keys` string; both accept identical fields.
+
+```conf
+# hyprland.conf
+chromakey = rgb(1e1e2e)
+chromakey = color rgb(181825), similarity 0.04
+chromakey = color rgb(313244), opacity 0.4, match hsv
+chromakey = profile term, color rgb(11111b), similarity 0.05, smoothness 0.03
+
+plugin {
+    hyprchromakey {
+        enabled = true
+
+        similarity = 0.08
+        smoothness = 0.02
+        opacity    = 0.0
+        match      = rgb
+        min_alpha  = 0.99
+
+        default_windows = off
+        default_layers  = off
+
+        main_surface_only = false
+        force_translucent = true
+        translucency      = 0.9995
+    }
+}
+
+windowrule = plugin:chromakey 1,    match:class ^(kitty|Alacritty)$
+windowrule = plugin:chromakey term, match:class ^(foot)$
+windowrule = plugin:chromakey 0,    match:class ^(mpv|imv)$
+layerrule  = plugin:chromakey 1,    match:namespace ^(waybar)$
+```
+
+
+## Options
+
+All under `plugin:hyprchromakey:`.
+
+| option | type | default | meaning |
+| --- | --- | --- | --- |
+| `enabled` | bool | `true` | master switch |
+| `similarity` | float | `0.08` | default distance below which a pixel is fully keyed |
+| `smoothness` | float | `0.02` | default fade band above `similarity`, so antialiased glyph edges don't get a hard outline |
+| `opacity` | float | `0.0` | default alpha a fully keyed pixel ends up with; `0` is invisible, `0.4` is a tint |
+| `match` | string | `rgb` | default comparison: `rgb`, `hsv` or `chroma` |
+| `min_alpha` | float | `0.99` | only key pixels whose source alpha is at least this, so already-translucent areas are left alone |
+| `default_windows` | string | `off` | applied to windows with no matching rule: `off`, `on` or a profile name |
+| `default_layers` | string | `off` | same, for layer surfaces |
+| `main_surface_only` | bool | `false` | key only the main surface, leaving popups and subsurfaces opaque |
+| `force_translucent` | bool | `true` | make keyed surfaces count as translucent; without it keying has nothing to reveal |
+| `translucency` | float | `0.9995` | the alpha `force_translucent` uses. `1.0` disables the nudge |
+| `keys` | string | `""` | the key colors, `;`-separated |
+
+
+## Key colors
+
+A key is a comma-separated list of `name value` fields, in any order. A lone value is taken as the
+color, so `rgb(1e1e2e)` on its own is a valid key.
+
+| field | default | meaning |
+| --- | --- | --- |
+| `color` | required | `rgb()`, `rgba()`, `#rrggbb`, `#rgb` or `0xAARRGGBB` |
+| `similarity` | the global | distance below which a pixel is fully keyed |
+| `smoothness` | the global | fade band just above `similarity` |
+| `opacity` | the global | alpha a fully keyed pixel ends up with |
+| `match` | the global | how the distance is measured |
+| `profile` | `default` | which profile this key belongs to |
+
+Every key in a profile is tested against every pixel, up to 16 per profile.
+
+### Match modes
+
+| mode | behaviour | good for |
+| --- | --- | --- |
+| `rgb` | largest per-channel difference | flat UI colors; the one you want almost always |
+| `hsv` | weighted hue, saturation and value difference | colors that shift slightly between themes or states |
+| `chroma` | hue and saturation only, brightness ignored entirely | shaded or gradient backgrounds of one color |
+
+`chroma` deliberately ignores how light or dark a pixel is, so it keys a whole gradient, but for
+the same reason it treats black, white and grey as the same color. Use it with saturated key
+colors, not the near-black backgrounds most terminals use.
+
+### Profiles
+
+Keys with a `profile` field are grouped under that name; keys without one land in `default`. Point
+a rule at a profile by using its name as the rule's value.
+
+
+## Targeting
+
+Rules select what gets keyed, using the `plugin:chromakey` effect the plugin registers. The value
+is `1`/`on` for the default profile, `0`/`off` to exclude, or a profile name.
+
+Any `match:` property Hyprland supports works, so you can scope by `class`, `title`, `floating`,
+`fullscreen`, `xwayland`, `workspace`, `tag` and the rest.
+
+To key most things and list the exceptions instead, set `default_windows = "on"` and use `0` rules
+to carve windows out. Rules always beat the default.
+
+
+## Dispatchers
+
+| dispatcher | what it does |
+| --- | --- |
+| `chromakey:toggle [profile]` | toggles keying on the active window |
+| `chromakey:togglewindow <window> [profile]` | same, for a window you name |
+| `chromakey:set <on\|off\|profile>` | sets the active window explicitly |
+| `chromakey:setwindow <window> <on\|off\|profile>` | sets a window you name |
+| `chromakey:reset` | drops all manual overrides, back to the rules |
+| `chromakey:reload` | rebuilds profiles and shaders |
+
+`<window>` is `class:<regex>`, `title:<regex>`, `address:0x...`, or a bare regex tried against
+both. Manual overrides outrank rules until `chromakey:reset`.
+
+`hl.dsp` only covers Hyprland's built-in dispatchers, so from Lua these are reached through
+`hl.dsp.exec_cmd("hyprctl dispatch ...")`.
+
+
+## Inspecting
+
+```bash
+hyprctl chromakey
+```
+
+Prints whether the hooks installed, every profile and key as the plugin parsed it, and which
+windows and layers are keyed right now. `hyprctl -j chromakey` gives the same as JSON.
+
+
+## Tuning
+
+- Nothing keyed? Your color is probably slightly off. Screenshot the window and pick the
+  background pixel with a color picker; the value you want is the exact sRGB one.
+- Text has a dark halo? That's antialiasing blending into the background color. Raise
+  `smoothness` a little; raising `similarity` too far starts eating the glyph edges instead.
+- Parts of an image or icon disappear? Lower `similarity`, or switch that key to `hsv`.
+
+
 
 ## How it works
 
