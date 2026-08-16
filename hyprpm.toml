@@ -2,6 +2,13 @@
 name = "hyprchromakey"
 authors = ["TheWoomy27"]
 
+# Maps a hyprland commit to the plugin commit that builds against it. hyprpm checks out the
+# pinned commit when the running hyprland matches.
+commit_pins = [
+    # v Hyprland                                  v hyprchromakey
+    ["efb50993780079460b0cbed1363e2166a2de1d9f", "de36be885e4238a41335773b2f1c10c987c34aa7"], # v0.56.2
+]
+
 [hyprchromakey]
 description = "Per-color window transparency: keys background colors out while text and images stay opaque"
 authors = ["TheWoomy27"]
