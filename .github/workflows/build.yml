@@ -1,0 +1,43 @@
+# Builds the plugin against the current Hyprland package. Runs daily so an upstream
+# release that breaks the plugin API shows up here rather than in someone's session.
+#
+# Nothing here reports success anywhere - a green run is silent. GitHub emails you on
+# failure. If you also want to be sure successes never notify, set
+# Settings -> Notifications -> Actions -> "Only notify for failed workflows".
+
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+
+    steps:
+      - name: Install Hyprland and build deps
+        run: pacman -Syu --noconfirm --needed git pkgconf hyprland
+
+      - uses: actions/checkout@v4
+
+      - name: Report versions
+        run: |
+          echo "hyprland: $(pacman -Q hyprland)"
+          echo "gcc:      $(gcc -dumpfullversion)"
+          pkg-config --modversion hyprland
+
+      - name: Build
+        run: make
+
+      - name: Check the plugin exports the required symbols
+        run: |
+          for sym in pluginInit pluginExit pluginAPIVersion; do
+            nm -D --defined-only out/hyprchromakey.so | grep -q " $sym\$" \
+              || { echo "missing exported symbol: $sym"; exit 1; }
+          done
