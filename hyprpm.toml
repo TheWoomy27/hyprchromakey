@@ -1,0 +1,11 @@
+[repository]
+name = "hyprchromakey"
+authors = ["TheWoomy27"]
+
+[hyprchromakey]
+description = "Per-color window transparency: keys background colors out while text and images stay opaque"
+authors = ["TheWoomy27"]
+output = "out/hyprchromakey.so"
+build = [
+    "make all",
+]

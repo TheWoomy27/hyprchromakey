@@ -1,0 +1,6 @@
+hyprland/
+out/
+tests/bin/
+.vscode/
+.envrc
+.direnv
