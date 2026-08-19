@@ -2,11 +2,12 @@
 name = "hyprchromakey"
 authors = ["TheWoomy27"]
 
-# Maps a hyprland commit to the plugin commit that builds against it. hyprpm checks out the
-# pinned commit when the running hyprland matches.
+# Maps a hyprland commit to the plugin commit that builds against it. hyprpm reads this file from
+# the default branch but then builds the pinned commit, so the plugin side has to be bumped
+# whenever code lands - otherwise every hyprpm user keeps building the old commit forever.
 commit_pins = [
     # v Hyprland                                  v hyprchromakey
-    ["efb50993780079460b0cbed1363e2166a2de1d9f", "de36be885e4238a41335773b2f1c10c987c34aa7"], # v0.56.2
+    ["efb50993780079460b0cbed1363e2166a2de1d9f", "d7306370e430fd45572b2e586b15db126c5b2268"], # v0.56.2
 ]
 
 [hyprchromakey]
