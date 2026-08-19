@@ -181,7 +181,39 @@ To key most things and list the exceptions instead, set `default_windows = "on"`
 to carve windows out. Rules always beat the default.
 
 
-## Dispatchers
+## Controlling it at runtime
+
+On a **Lua config** the plugin exposes functions under `hl.plugin.hyprchromakey`. They are plain
+Lua functions, so they bind directly with no `hyprctl` round trip:
+
+```lua
+hl.bind("SUPER + K", hl.plugin.hyprchromakey.toggle)
+```
+
+| function | what it does |
+| --- | --- |
+| `toggle([profile])` | toggles keying on the active window |
+| `set(value)` | sets the active window: `"on"`, `"off"` or a profile name |
+| `set_window(window, value)` | same, for a window you name |
+| `reset()` | drops all manual overrides, back to the rules |
+| `reload()` | rebuilds profiles and shaders |
+
+From a terminal, `hyprctl dispatch` evaluates its argument as Lua:
+
+```bash
+hyprctl dispatch 'hl.plugin.hyprchromakey.toggle'
+```
+
+To turn the whole effect on and off, change the config value. `hyprctl keyword` does not work with
+the Lua parser, so use `eval`:
+
+```bash
+hyprctl eval 'hl.config { plugin = { hyprchromakey = { enabled = false } } }'
+```
+
+Any config value changed this way applies immediately, including key colors.
+
+On a **hyprlang config** the same actions are dispatchers instead:
 
 | dispatcher | what it does |
 | --- | --- |
@@ -189,14 +221,18 @@ to carve windows out. Rules always beat the default.
 | `chromakey:togglewindow <window> [profile]` | same, for a window you name |
 | `chromakey:set <on\|off\|profile>` | sets the active window explicitly |
 | `chromakey:setwindow <window> <on\|off\|profile>` | sets a window you name |
-| `chromakey:reset` | drops all manual overrides, back to the rules |
+| `chromakey:reset` | drops all manual overrides |
 | `chromakey:reload` | rebuilds profiles and shaders |
 
-`<window>` is `class:<regex>`, `title:<regex>`, `address:0x...`, or a bare regex tried against
-both. Manual overrides outrank rules until `chromakey:reset`.
+```conf
+bind = SUPER, K, exec, hyprctl dispatch chromakey:toggle
+```
 
-`hl.dsp` only covers Hyprland's built-in dispatchers, so from Lua these are reached through
-`hl.dsp.exec_cmd("hyprctl dispatch ...")`.
+`<window>` is `class:<regex>`, `title:<regex>`, `address:0x...`, or a bare regex tried against
+both. Manual overrides outrank rules until reset.
+
+Plugin dispatchers cannot be reached by name from a Lua config, which is why the Lua functions
+above exist.
 
 
 ## Inspecting

@@ -72,6 +72,10 @@ class CChromaConfig {
 
     const std::unordered_map<std::string, SP<SChromaProfile>>&         profiles() const;
 
+    // A cheap snapshot of every value we care about. `hyprctl eval` changes config values without
+    // emitting a reload, so this is compared each frame to notice changes that way.
+    std::string                                                        fingerprint() const;
+
     bool                                                               enabled() const;
     bool                                                               forceTranslucent() const;
     bool                                                               mainSurfaceOnly() const;

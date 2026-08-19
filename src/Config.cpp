@@ -250,6 +250,15 @@ const std::unordered_map<std::string, SP<SChromaProfile>>& CChromaConfig::profil
     return m_profiles;
 }
 
+std::string CChromaConfig::fingerprint() const {
+    if (!m_registered)
+        return "";
+
+    return std::format("{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}", m_enabled->value(), m_similarity->value(), m_smoothness->value(), m_opacity->value(), m_minAlpha->value(),
+                       m_match->value(), m_defaultWindowsVal->value(), m_defaultLayersVal->value(), m_mainSurfaceOnly->value(), m_forceTranslucent->value(),
+                       m_translucency->value(), m_keys->value());
+}
+
 bool CChromaConfig::enabled() const {
     // if registration failed the values are unbound and reading them would crash, so stay out of
     // the way entirely

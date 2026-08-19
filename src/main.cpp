@@ -12,6 +12,13 @@
 
 #include <hyprutils/string/String.hpp>
 
+// lua's headers carry no extern "C" guards, so without this the plugin ends up asking the dynamic
+// linker for mangled C++ symbols and fails to load outright
+extern "C" {
+#include <lauxlib.h>
+#include <lua.h>
+}
+
 #include <regex>
 #include <vector>
 
@@ -72,6 +79,8 @@ static std::pair<std::string, std::string> splitArgs(const std::string& args) {
 
 // ---------------------------------------------------------------------------- config plumbing
 
+static void reloadConfigState();
+
 static Hyprlang::CParseResult keywordResult(const std::expected<void, std::string>& res) {
     Hyprlang::CParseResult out;
     if (!res)
@@ -79,10 +88,76 @@ static Hyprlang::CParseResult keywordResult(const std::expected<void, std::strin
     return out;
 }
 
+// `hyprctl eval` changes config values without emitting a reload, so nothing tells us the config
+// moved: keying quietly starts or stops on the next draw while the screen keeps its stale pixels
+// until something else damages it. Comparing a cheap snapshot each frame catches that.
+static void pollConfigChanges() {
+    static std::string s_last;
+
+    auto               now = g_chromaConfig.fingerprint();
+    if (now == s_last)
+        return;
+
+    const bool FIRST = s_last.empty();
+    s_last           = std::move(now);
+
+    if (!FIRST)
+        reloadConfigState();
+}
+
 static void reloadConfigState() {
     g_chromaConfig.commit();
     g_chromaShaders.clear();
     g_chromaEngine.onConfigCommitted();
+}
+
+// ---------------------------------------------------------------------------- lua api
+
+// hl.dsp only covers hyprland's own dispatchers and there is no way to reach a plugin's by name,
+// so on a lua config these are the only way to drive the plugin. They are plain lua functions, so
+// they can be handed straight to hl.bind without a hyprctl round trip.
+static int luaToggle(lua_State* L) {
+    const char* PROFILE = lua_gettop(L) > 0 ? lua_tostring(L, 1) : nullptr;
+    g_chromaEngine.toggleWindow(Desktop::focusState()->window(), PROFILE ? PROFILE : "");
+    return 0;
+}
+
+static int luaSet(lua_State* L) {
+    const char* VALUE = lua_gettop(L) > 0 ? lua_tostring(L, 1) : nullptr;
+    if (!VALUE)
+        return luaL_error(L, "hyprchromakey.set: expected \"on\", \"off\" or a profile name");
+
+    g_chromaEngine.setWindowOverride(Desktop::focusState()->window(), VALUE);
+    return 0;
+}
+
+static int luaSetWindow(lua_State* L) {
+    const char* WINDOW = lua_gettop(L) > 0 ? lua_tostring(L, 1) : nullptr;
+    const char* VALUE  = lua_gettop(L) > 1 ? lua_tostring(L, 2) : nullptr;
+    if (!WINDOW || !VALUE)
+        return luaL_error(L, "hyprchromakey.set_window: expected (window, \"on\"|\"off\"|profile)");
+
+    g_chromaEngine.setWindowOverride(windowFromArg(WINDOW), VALUE);
+    return 0;
+}
+
+static int luaReset(lua_State* L) {
+    g_chromaEngine.clearOverrides();
+    return 0;
+}
+
+static int luaReload(lua_State* L) {
+    reloadConfigState();
+    return 0;
+}
+
+static void registerLuaFunctions(HANDLE handle) {
+    // only present on a lua config; a no-op elsewhere
+    HyprlandAPI::addLuaFunction(handle, "hyprchromakey", "toggle", &luaToggle);
+    HyprlandAPI::addLuaFunction(handle, "hyprchromakey", "set", &luaSet);
+    HyprlandAPI::addLuaFunction(handle, "hyprchromakey", "set_window", &luaSetWindow);
+    HyprlandAPI::addLuaFunction(handle, "hyprchromakey", "reset", &luaReset);
+    HyprlandAPI::addLuaFunction(handle, "hyprchromakey", "reload", &luaReload);
 }
 
 // ---------------------------------------------------------------------------- registration
@@ -137,8 +212,10 @@ static void registerEvents() {
     g_listeners.emplace_back(events.window.destroy.listen([](PHLWINDOWREF window) { g_chromaEngine.onWindowGone(window.get()); }));
 
     g_listeners.emplace_back(events.render.stage.listen([](eRenderStage stage) {
-        if (stage == RENDER_BEGIN)
+        if (stage == RENDER_BEGIN) {
+            pollConfigChanges();
             g_chromaEngine.clearOpaqueRegions();
+        }
         else if (stage == RENDER_POST)
             g_chromaEngine.onFrameEnd();
     }));
@@ -160,6 +237,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     g_chromaConfig.registerConfig(handle);
     registerKeywords(handle);
     registerDispatchers(handle);
+    registerLuaFunctions(handle);
     registerEvents();
 
     if (!g_chromaEngine.install(handle)) {

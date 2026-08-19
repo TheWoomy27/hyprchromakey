@@ -31,5 +31,6 @@ hl.window_rule({ match = { class = "^(Alacritty)$" },    ["plugin:chromakey"] = 
 hl.window_rule({ match = { class = "^(mpv|imv)$" },      ["plugin:chromakey"] = "0" })
 hl.layer_rule({  match = { namespace = "^(waybar)$" },   ["plugin:chromakey"] = "1" })
 
-hl.bind("SUPER + T",         hl.dsp.exec_cmd("hyprctl dispatch chromakey:toggle"))
-hl.bind("SUPER + SHIFT + T", hl.dsp.exec_cmd("hyprctl dispatch chromakey:set term"))
+-- plugin functions are plain lua functions, so they bind directly
+hl.bind("SUPER + K", hl.plugin.hyprchromakey.toggle)
+hl.bind("SUPER + SHIFT + K", function() hl.plugin.hyprchromakey.set("term") end)
