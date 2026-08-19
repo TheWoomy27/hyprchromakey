@@ -9,6 +9,7 @@
 #include <hyprland/src/desktop/view/WLSurface.hpp>
 #include <hyprland/src/helpers/math/Math.hpp>
 
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -24,6 +25,7 @@ class CChromaEngine {
     SP<SChromaProfile> currentProfile() const;
 
     void               onConfigCommitted();
+    void               refreshAll();
     void               clearOpaqueRegions();
     void               onFrameEnd();
     void               onWindowGone(Desktop::View::CWindow* window);
@@ -32,6 +34,8 @@ class CChromaEngine {
     // dispatchers
     std::string        setWindowOverride(PHLWINDOW window, const std::string& value);
     std::string        toggleWindow(PHLWINDOW window, const std::string& profile);
+    void               setEnabled(std::optional<bool> value);
+    void               toggleAll();
     void               clearOverrides();
 
     SP<SChromaProfile> profileForWindow(PHLWINDOW window);

@@ -72,9 +72,16 @@ class CChromaConfig {
 
     const std::unordered_map<std::string, SP<SChromaProfile>>&         profiles() const;
 
-    // A cheap snapshot of every value we care about. `hyprctl eval` changes config values without
-    // emitting a reload, so this is compared each frame to notice changes that way.
-    std::string                                                        fingerprint() const;
+    // A cheap hash of every value we care about. `hyprctl eval` and `hyprctl keyword` change config
+    // values without emitting a reload or any other signal, so this is compared each frame to
+    // notice changes that way. See pollConfigChanges() for what that does and does not catch.
+    uint64_t                                                           fingerprint() const;
+
+    // Runtime master switch, layered over plugin:hyprchromakey:enabled. nullopt follows the config.
+    // Unlike a config edit this is ours, so we can damage the screen the moment it changes instead
+    // of waiting to notice.
+    void                                                               setEnabledOverride(std::optional<bool> value);
+    bool                                                               enabledOverridden() const;
 
     bool                                                               enabled() const;
     bool                                                               forceTranslucent() const;
@@ -85,6 +92,7 @@ class CChromaConfig {
     std::vector<SKeySpec>                               m_specs;
     std::unordered_map<std::string, SP<SChromaProfile>> m_profiles;
     SP<SChromaProfile>                                  m_defaultWindows, m_defaultLayers;
+    std::optional<bool>                                 m_enabledOverride;
     uint64_t                                            m_generation = 0;
     bool                                                m_registered = true;
 

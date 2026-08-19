@@ -32,5 +32,6 @@ hl.window_rule({ match = { class = "^(mpv|imv)$" },      ["plugin:chromakey"] = 
 hl.layer_rule({  match = { namespace = "^(waybar)$" },   ["plugin:chromakey"] = "1" })
 
 -- plugin functions are plain lua functions, so they bind directly
-hl.bind("SUPER + K", hl.plugin.hyprchromakey.toggle)
-hl.bind("SUPER + SHIFT + K", function() hl.plugin.hyprchromakey.set("term") end)
+hl.bind("SUPER + K", hl.plugin.hyprchromakey.toggle_all)          -- the whole effect
+hl.bind("SUPER + SHIFT + K", hl.plugin.hyprchromakey.toggle)      -- just the active window
+hl.bind("SUPER + ALT + K", function() hl.plugin.hyprchromakey.set("term") end)

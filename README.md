@@ -187,52 +187,71 @@ On a **Lua config** the plugin exposes functions under `hl.plugin.hyprchromakey`
 Lua functions, so they bind directly with no `hyprctl` round trip:
 
 ```lua
-hl.bind("SUPER + K", hl.plugin.hyprchromakey.toggle)
+hl.bind("SUPER + K", hl.plugin.hyprchromakey.toggle_all)
 ```
 
 | function | what it does |
 | --- | --- |
+| `toggle_all()` | turns the whole effect on or off |
+| `set_all(value)` | `"on"`, `"off"`, or `"config"` to follow `enabled` again |
 | `toggle([profile])` | toggles keying on the active window |
 | `set(value)` | sets the active window: `"on"`, `"off"` or a profile name |
 | `set_window(window, value)` | same, for a window you name |
-| `reset()` | drops all manual overrides, back to the rules |
+| `reset()` | drops every override, back to the config and the rules |
 | `reload()` | rebuilds profiles and shaders |
 
-From a terminal, `hyprctl dispatch` evaluates its argument as Lua:
+From a terminal, `hyprctl eval` runs the call directly:
 
 ```bash
-hyprctl dispatch 'hl.plugin.hyprchromakey.toggle'
+hyprctl eval 'hl.plugin.hyprchromakey.toggle_all()'
 ```
 
-To turn the whole effect on and off, change the config value. `hyprctl keyword` does not work with
-the Lua parser, so use `eval`:
+`hyprctl dispatch` also evaluates Lua, but hands what it gets to `hl.dispatch`, so pass the
+function rather than calling it — bare for no arguments, wrapped otherwise:
 
 ```bash
-hyprctl eval 'hl.config { plugin = { hyprchromakey = { enabled = false } } }'
+hyprctl dispatch 'hl.plugin.hyprchromakey.toggle_all'
 ```
 
-Any config value changed this way applies immediately, including key colors.
+```bash
+hyprctl dispatch 'function() hl.plugin.hyprchromakey.set_all("off") end'
+```
 
 On a **hyprlang config** the same actions are dispatchers instead:
 
 | dispatcher | what it does |
 | --- | --- |
+| `chromakey:toggleall` | turns the whole effect on or off |
+| `chromakey:setall <on\|off\|config>` | sets it explicitly, or hands it back to `enabled` |
 | `chromakey:toggle [profile]` | toggles keying on the active window |
 | `chromakey:togglewindow <window> [profile]` | same, for a window you name |
 | `chromakey:set <on\|off\|profile>` | sets the active window explicitly |
 | `chromakey:setwindow <window> <on\|off\|profile>` | sets a window you name |
-| `chromakey:reset` | drops all manual overrides |
+| `chromakey:reset` | drops every override |
 | `chromakey:reload` | rebuilds profiles and shaders |
 
 ```conf
-bind = SUPER, K, exec, hyprctl dispatch chromakey:toggle
+bind = SUPER, K, exec, hyprctl dispatch chromakey:toggleall
 ```
 
 `<window>` is `class:<regex>`, `title:<regex>`, `address:0x...`, or a bare regex tried against
-both. Manual overrides outrank rules until reset.
+both. Overrides outrank the config and the rules until reset.
 
 Plugin dispatchers cannot be reached by name from a Lua config, which is why the Lua functions
 above exist.
+
+### Why not just write to `enabled`?
+
+You can change any config value at runtime — `hyprctl keyword plugin:hyprchromakey:enabled false`,
+or `hyprctl eval 'hl.config { plugin = { hyprchromakey = { enabled = false } } }'` on Lua — and the
+plugin will pick it up, including key colors. But Hyprland does not announce plugin config changes,
+so the plugin can only notice one while it is drawing a frame, and a compositor with nothing moving
+on screen draws no frames at all. On an idle desktop the change then sits unapplied until something
+else causes a redraw, which looks like windows updating only once you touch them.
+
+The switches above are the plugin's own, not a config value, so they repaint every keyed window the
+moment you run them. Use those for anything interactive, and `keyword`/`eval` for values you are
+tuning.
 
 
 ## Inspecting

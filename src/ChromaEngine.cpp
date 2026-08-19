@@ -306,10 +306,28 @@ void CChromaEngine::onFrameEnd() {
 
 void CChromaEngine::onConfigCommitted() {
     m_resolveCache.clear();
-    // surfaces that are no longer keyed have to go back to being opaque; anything still keyed
-    // gets nudged again on its next draw
+    refreshAll();
+}
+
+// surfaces that are no longer keyed have to go back to being opaque; anything still keyed gets
+// nudged again on its next draw. damageEverything also schedules a frame, which is what makes a
+// change land on an idle screen instead of sitting there until something else redraws.
+void CChromaEngine::refreshAll() {
     restoreTranslucency();
     damageEverything();
+}
+
+// Flipping plugin:hyprchromakey:enabled through `hyprctl keyword`/`eval` works, but only becomes
+// visible on the next frame the compositor happens to draw - see pollConfigChanges(). Going through
+// our own override instead means the toggle takes effect at once, on every window, whether or not
+// any of them is focused or drawing.
+void CChromaEngine::setEnabled(std::optional<bool> value) {
+    g_chromaConfig.setEnabledOverride(value);
+    refreshAll();
+}
+
+void CChromaEngine::toggleAll() {
+    setEnabled(!g_chromaConfig.enabled());
 }
 
 void CChromaEngine::onWindowGone(Desktop::View::CWindow* window) {
@@ -339,13 +357,8 @@ std::string CChromaEngine::toggleWindow(PHLWINDOW window, const std::string& pro
 
 void CChromaEngine::clearOverrides() {
     m_windowOverrides.clear();
-
-    if (!g_pHyprRenderer)
-        return;
-
-    for (const auto& WINDOW : Desktop::windowState()->windows()) {
-        g_pHyprRenderer->damageWindow(WINDOW, true);
-    }
+    g_chromaConfig.setEnabledOverride(std::nullopt);
+    refreshAll();
 }
 
 std::string CChromaEngine::status(bool json) {
@@ -354,6 +367,7 @@ std::string CChromaEngine::status(bool json) {
     if (json) {
         out += "{\n";
         out += std::format("  \"enabled\": {},\n", g_chromaConfig.enabled());
+        out += std::format("  \"overridden\": {},\n", g_chromaConfig.enabledOverridden());
         out += std::format("  \"hooked\": {},\n", m_hooked);
         out += "  \"profiles\": [\n";
 
@@ -378,7 +392,8 @@ std::string CChromaEngine::status(bool json) {
         return out;
     }
 
-    out += std::format("hyprchromakey: {}, hooks {}\n", g_chromaConfig.enabled() ? "enabled" : "disabled", m_hooked ? "installed" : "MISSING");
+    out += std::format("hyprchromakey: {}{}, hooks {}\n", g_chromaConfig.enabled() ? "enabled" : "disabled",
+                       g_chromaConfig.enabledOverridden() ? " (runtime override, `chromakey:reset` to follow the config again)" : "", m_hooked ? "installed" : "MISSING");
 
     if (m_collided)
         out += "\nanother loaded plugin already hooks the render path, so hyprchromakey cannot run.\nhyprland allows one hook per function. Run `hyprctl plugin list` - any other plugin\nthat recolors or filters window pixels will take the same hooks.\n";

@@ -1,5 +1,7 @@
 #include "Config.hpp"
 
+#include <bit>
+
 #include <hyprland/src/config/shared/parserUtils/ParserUtils.hpp>
 #include <hyprutils/string/String.hpp>
 
@@ -250,19 +252,48 @@ const std::unordered_map<std::string, SP<SChromaProfile>>& CChromaConfig::profil
     return m_profiles;
 }
 
-std::string CChromaConfig::fingerprint() const {
+uint64_t CChromaConfig::fingerprint() const {
     if (!m_registered)
-        return "";
+        return 0;
 
-    return std::format("{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}", m_enabled->value(), m_similarity->value(), m_smoothness->value(), m_opacity->value(), m_minAlpha->value(),
-                       m_match->value(), m_defaultWindowsVal->value(), m_defaultLayersVal->value(), m_mainSurfaceOnly->value(), m_forceTranslucent->value(),
-                       m_translucency->value(), m_keys->value());
+    uint64_t hash = 0;
+    const auto MIX = [&hash](uint64_t v) { hash = (hash ^ (v + 0x9e3779b97f4a7c15ULL + (hash << 6) + (hash >> 2))); };
+    const auto NUM = [&MIX](float f) { MIX(std::bit_cast<uint32_t>(f)); };
+    const auto STR = [&MIX](const std::string& v) { MIX(std::hash<std::string_view>{}(v)); };
+
+    // deliberately the raw value, not enabled(): a runtime override is not a config change and
+    // must not drag the whole config through a rebuild
+    MIX(m_enabled->value());
+    MIX(m_mainSurfaceOnly->value());
+    MIX(m_forceTranslucent->value());
+    NUM(m_similarity->value());
+    NUM(m_smoothness->value());
+    NUM(m_opacity->value());
+    NUM(m_minAlpha->value());
+    NUM(m_translucency->value());
+    STR(m_match->value());
+    STR(m_defaultWindowsVal->value());
+    STR(m_defaultLayersVal->value());
+    STR(m_keys->value());
+
+    return hash;
+}
+
+void CChromaConfig::setEnabledOverride(std::optional<bool> value) {
+    m_enabledOverride = value;
+}
+
+bool CChromaConfig::enabledOverridden() const {
+    return m_enabledOverride.has_value();
 }
 
 bool CChromaConfig::enabled() const {
     // if registration failed the values are unbound and reading them would crash, so stay out of
     // the way entirely
-    return m_registered && m_enabled->value();
+    if (!m_registered)
+        return false;
+
+    return m_enabledOverride.value_or(m_enabled->value());
 }
 
 bool CChromaConfig::forceTranslucent() const {

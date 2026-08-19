@@ -19,6 +19,7 @@ extern "C" {
 #include <lua.h>
 }
 
+#include <optional>
 #include <regex>
 #include <vector>
 
@@ -88,18 +89,21 @@ static Hyprlang::CParseResult keywordResult(const std::expected<void, std::strin
     return out;
 }
 
-// `hyprctl eval` changes config values without emitting a reload, so nothing tells us the config
-// moved: keying quietly starts or stops on the next draw while the screen keeps its stale pixels
-// until something else damages it. Comparing a cheap snapshot each frame catches that.
+// `hyprctl eval` and `hyprctl keyword` change config values without emitting a reload, without
+// tripping hyprland's prop refresher and without damaging anything, so nothing tells us the config
+// moved. Comparing a cheap hash per frame catches it - but only on a frame, and an idle compositor
+// draws none, so a change made while nothing is moving lands whenever the screen next redraws for
+// any reason. That is why the runtime switches below flip an override we own and damage the screen
+// themselves rather than writing to the config.
 static void pollConfigChanges() {
-    static std::string s_last;
+    static std::optional<uint64_t> s_last;
 
-    auto               now = g_chromaConfig.fingerprint();
-    if (now == s_last)
+    const auto                     NOW = g_chromaConfig.fingerprint();
+    if (s_last == NOW)
         return;
 
-    const bool FIRST = s_last.empty();
-    s_last           = std::move(now);
+    const bool FIRST = !s_last.has_value();
+    s_last           = NOW;
 
     if (!FIRST)
         reloadConfigState();
@@ -109,6 +113,21 @@ static void reloadConfigState() {
     g_chromaConfig.commit();
     g_chromaShaders.clear();
     g_chromaEngine.onConfigCommitted();
+}
+
+// ---------------------------------------------------------------------------- runtime switches
+
+// the master switch argument: "on"/"off", or "config" to hand it back to
+// plugin:hyprchromakey:enabled. The outer optional is "could not parse".
+static std::optional<std::optional<bool>> parseSwitch(const std::string& value) {
+    const auto V = trim(value);
+    if (V == "on" || V == "1" || V == "true" || V == "enable")
+        return std::optional<bool>{true};
+    if (V == "off" || V == "0" || V == "false" || V == "disable")
+        return std::optional<bool>{false};
+    if (V == "config" || V.empty())
+        return std::optional<bool>{std::nullopt};
+    return std::nullopt;
 }
 
 // ---------------------------------------------------------------------------- lua api
@@ -141,6 +160,22 @@ static int luaSetWindow(lua_State* L) {
     return 0;
 }
 
+// the whole-desktop switch, as opposed to luaToggle's focused window
+static int luaToggleAll(lua_State* L) {
+    g_chromaEngine.toggleAll();
+    return 0;
+}
+
+static int luaSetAll(lua_State* L) {
+    const char* VALUE = lua_gettop(L) > 0 ? lua_tostring(L, 1) : nullptr;
+    const auto  PARSED = parseSwitch(VALUE ? VALUE : "");
+    if (!PARSED)
+        return luaL_error(L, "hyprchromakey.set_all: expected \"on\", \"off\" or \"config\"");
+
+    g_chromaEngine.setEnabled(*PARSED);
+    return 0;
+}
+
 static int luaReset(lua_State* L) {
     g_chromaEngine.clearOverrides();
     return 0;
@@ -156,6 +191,8 @@ static void registerLuaFunctions(HANDLE handle) {
     HyprlandAPI::addLuaFunction(handle, "hyprchromakey", "toggle", &luaToggle);
     HyprlandAPI::addLuaFunction(handle, "hyprchromakey", "set", &luaSet);
     HyprlandAPI::addLuaFunction(handle, "hyprchromakey", "set_window", &luaSetWindow);
+    HyprlandAPI::addLuaFunction(handle, "hyprchromakey", "toggle_all", &luaToggleAll);
+    HyprlandAPI::addLuaFunction(handle, "hyprchromakey", "set_all", &luaSetAll);
     HyprlandAPI::addLuaFunction(handle, "hyprchromakey", "reset", &luaReset);
     HyprlandAPI::addLuaFunction(handle, "hyprchromakey", "reload", &luaReload);
 }
@@ -184,6 +221,20 @@ static void registerDispatchers(HANDLE handle) {
         if (WINDOW.empty())
             return SDispatchResult{.success = false, .error = "usage: chromakey:setwindow <window> <on|off|profile>"};
         return OK(g_chromaEngine.setWindowOverride(windowFromArg(WINDOW), VALUE));
+    });
+
+    HyprlandAPI::addDispatcherV2(handle, "chromakey:toggleall", [](std::string) -> SDispatchResult {
+        g_chromaEngine.toggleAll();
+        return {.success = true};
+    });
+
+    HyprlandAPI::addDispatcherV2(handle, "chromakey:setall", [](std::string args) -> SDispatchResult {
+        const auto PARSED = parseSwitch(args);
+        if (!PARSED)
+            return SDispatchResult{.success = false, .error = "usage: chromakey:setall <on|off|config>"};
+
+        g_chromaEngine.setEnabled(*PARSED);
+        return {.success = true};
     });
 
     HyprlandAPI::addDispatcherV2(handle, "chromakey:reset", [](std::string) -> SDispatchResult {
