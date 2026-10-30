@@ -105,8 +105,12 @@ static std::string processSource(const std::string& source) {
     return code;
 }
 
-static std::string getDefines(uint16_t features) {
-    static const std::array<std::pair<const char*, uint16_t>, 14> DEFINES = {{
+// eTransferFunction values hyprland passes for CM variants
+constexpr int TF_SRGB = 9, TF_PQ = 11, TF_GAMMA22 = 2;
+
+// mirrors CShaderLoader::getDefines
+static std::string getDefines(uint16_t features, int sourceTF = TF_SRGB, int targetTF = TF_SRGB) {
+    static const std::array<std::pair<const char*, uint16_t>, 15> DEFINES = {{
         {"USE_RGBA", 1 << 0},
         {"USE_DISCARD", 1 << 1},
         {"USE_TINT", 1 << 2},
@@ -121,12 +125,14 @@ static std::string getDefines(uint16_t features) {
         {"USE_BLUR_ALPHA_MASK", 1 << 11},
         {"USE_BLUR_MATTE", 1 << 12},
         {"USE_ALT_TONEMAP", 1 << 13},
+        {"USE_BLUR_PROPORTIONAL", 1 << 14},
     }};
 
     std::string res;
     for (const auto& [name, flag] : DEFINES) {
         res += std::format("#define {} {}\n", name, (features & flag) != 0 ? '1' : '0');
     }
+    res += std::format("#define SOURCE_TF {}\n#define TARGET_TF {}\n", sourceTF, targetTF);
     return res;
 }
 
@@ -181,34 +187,54 @@ int main(int argc, char** argv) {
     std::cout << "GL_VERSION: " << (const char*)glGetString(GL_VERSION) << "\n\n";
 
     // the feature combos hyprland actually builds for window surfaces
-    const std::vector<std::pair<const char*, uint16_t>> CASES = {
+    struct SCase {
+        const char* name;
+        uint16_t    features;
+        int         sourceTF = TF_SRGB, targetTF = TF_SRGB;
+    };
+
+    const std::vector<SCase> CASES = {
         {"surface: plain RGBX", 0},
         {"surface: RGBA", 1 << 0},
         {"surface: RGBA+discard", (1 << 0) | (1 << 1)},
         {"surface: RGBA+rounding", (1 << 0) | (1 << 3)},
         {"surface: RGBA+tint+rounding", (1 << 0) | (1 << 2) | (1 << 3)},
         {"surface: RGBA+CM", (1 << 0) | (1 << 4)},
-        {"surface: RGBA+CM+tonemap", (1 << 0) | (1 << 4) | (1 << 5)},
-        {"surface: RGBA+CM+tonemap+sdrmod", (1 << 0) | (1 << 4) | (1 << 5) | (1 << 6)},
+        {"surface: RGBA+CM srgb->pq", (1 << 0) | (1 << 4), TF_SRGB, TF_PQ},
+        {"surface: RGBA+CM gamma22->srgb", (1 << 0) | (1 << 4), TF_GAMMA22, TF_SRGB},
+        {"surface: RGBA+CM+tonemap", (1 << 0) | (1 << 4) | (1 << 5), TF_PQ, TF_SRGB},
+        {"surface: RGBA+CM+tonemap+sdrmod", (1 << 0) | (1 << 4) | (1 << 5) | (1 << 6), TF_SRGB, TF_PQ},
         {"surface: RGBA+blur", (1 << 0) | (1 << 7)},
+        {"surface: RGBA+blur+proportional", (1 << 0) | (1 << 7) | (1 << 14)},
         {"surface: RGBA+blur+matte+discard", (1 << 0) | (1 << 1) | (1 << 7) | (1 << 12)},
         {"surface: RGBA+mirror", (1 << 0) | (1 << 9)},
         {"surface: RGBA+mirror+CM", (1 << 0) | (1 << 9) | (1 << 4)},
         {"surface: RGBA+motionblur", (1 << 0) | (1 << 10)},
-        {"surface: everything", 0x3FFF & ~(1 << 8)},
+        {"surface: RGBX+motionblur+matte", (1 << 10) | (1 << 12)},
+        // minus ICC (needs a LUT sampler) and mirror, which hyprland's own blur path redeclares
+        // locals against when both are on
+        {"surface: everything", 0x7FFF & ~(1 << 8) & ~(1 << 9), TF_SRGB, TF_PQ},
     };
 
     int failures = 0;
 
-    for (const auto& [name, features] : CASES) {
-        g_overrideDefines = getDefines(features);
+    for (const auto& [name, features, sourceTF, targetTF] : CASES) {
+        g_overrideDefines = getDefines(features, sourceTF, targetTF);
         const auto RAW    = processSource(readFile(g_shaderDir + "/surface.frag"));
         if (RAW.empty()) {
-            std::cout << std::format("[SKIP] {} (preprocess failed)\n", name);
+            std::cout << std::format("[FAIL] {} (preprocess failed)\n", name);
+            ++failures;
             continue;
         }
 
-        const auto PATCHED = patchChromaSource(RAW);
+        // only our fault if hyprland's own variant compiles and ours does not
+        std::string upstreamLog;
+        if (!compileGLES(RAW, upstreamLog)) {
+            std::cout << std::format("[skip] {}: hyprland's own variant does not compile either\n", name);
+            continue;
+        }
+
+        const auto PATCHED = patchChromaSource(RAW, SChromaShaderTraits{.rgba = (features & 1) != 0, .regionTest = true});
         if (PATCHED.empty()) {
             std::cout << std::format("[FAIL] {}: patch anchors not found\n", name);
             ++failures;
@@ -245,7 +271,7 @@ int main(int argc, char** argv) {
     {
         g_overrideDefines  = getDefines(0);
         const auto RAW     = processSource(readFile(g_shaderDir + "/ext.frag"));
-        const auto PATCHED = patchChromaSource(RAW);
+        const auto PATCHED = patchChromaSource(RAW, SChromaShaderTraits{.rgba = true, .regionTest = false});
         std::string log;
         if (PATCHED.empty() || !compileGLES(PATCHED, log)) {
             std::cout << std::format("[FAIL] ext: {}\n", log.empty() ? "patch anchors not found" : log);

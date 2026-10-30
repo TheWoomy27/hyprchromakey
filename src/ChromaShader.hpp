@@ -8,11 +8,12 @@
 #include <hyprland/src/render/Shader.hpp>
 #include <hyprland/src/render/ShaderLoader.hpp>
 
-#include <unordered_map>
+#include <map>
+#include <set>
 
 // Compiles and caches chromakey-patched copies of hyprland's own surface shaders.
 //
-// Hyprland builds a fragment shader per (shader, feature flags) pair on demand. We take the exact
+// Hyprland builds a fragment shader per (shader, variant) pair on demand. We take the exact
 // source it would have used, splice our key test in right after the texture sample, and hand the
 // result back from the getShaderVariant hook. Everything downstream - color management, rounding,
 // blur blending, tint - keeps working because it is still hyprland's shader.
@@ -20,7 +21,7 @@ class CChromaShaders {
   public:
     // Returns a patched variant with `profile`'s uniforms loaded, or nullptr if it could not be
     // built - in which case the caller must fall back to the stock shader.
-    WP<CShader> get(Render::ePreparedFragmentShader frag, Render::ShaderFeatureFlags features, const SChromaProfile& profile);
+    WP<CShader> get(Render::ePreparedFragmentShader frag, const Render::SShaderVariant& variant, const SChromaProfile& profile);
 
     // Drops every compiled variant. Needs a current EGL context.
     void        clear();
@@ -34,11 +35,13 @@ class CChromaShaders {
         const void* uploadedProfile    = nullptr;
     };
 
-    SVariant*                                  compile(Render::ePreparedFragmentShader frag, Render::ShaderFeatureFlags features);
+    using VariantKey = std::pair<Render::ePreparedFragmentShader, Render::SShaderVariant>;
 
-    std::unordered_map<uint32_t, SVariant>     m_variants;
+    SVariant*                                  compile(Render::ePreparedFragmentShader frag, const Render::SShaderVariant& variant);
+
+    std::map<VariantKey, SVariant>             m_variants;
     // shaders we already tried and failed to build, so we don't recompile every frame
-    std::unordered_map<uint32_t, bool>         m_broken;
+    std::set<VariantKey>                       m_broken;
 };
 
 inline CChromaShaders g_chromaShaders;

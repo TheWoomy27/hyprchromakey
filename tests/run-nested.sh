@@ -23,9 +23,10 @@ if [ "$MODE" = "with-plugin" ] && [ ! -f "$PLUGIN" ]; then
 fi
 
 mkdir -p "$OUT"
-CONF="$OUT/hypr.conf"
-sed -e "s|PLUGIN_PATH|$PLUGIN|" -e "s|LAUNCHER|$HERE/launch-kitty.sh|" "$HERE/hc-test.conf" > "$CONF"
-[ "$MODE" = "with-plugin" ] || sed -i '/^plugin = /d' "$CONF"
+CONF="$OUT/hyprland.lua"
+sed -e "s|PLUGIN_PATH|$PLUGIN|" -e "s|LAUNCHER|$HERE/launch-kitty.sh|" "$HERE/hc-test.lua" > "$CONF"
+# without the plugin its config block and rule would only produce errors, so drop them too
+[ "$MODE" = "with-plugin" ] || sed -i -e '/^hl.plugin.load/d' -e '/^hl.config { plugin/,/^}}}/d' -e '/plugin:chromakey/d' "$CONF"
 
 HOST_SOCKETS=$(ls "$XDG_RUNTIME_DIR"/wayland-* 2>/dev/null | grep -v '\.lock$')
 HOST_INSTANCES=$(ls -d "$XDG_RUNTIME_DIR"/hypr/*/ 2>/dev/null)
@@ -89,14 +90,14 @@ if command -v magick > /dev/null; then
     if [ "$MODE" = "with-plugin" ]; then
         PIXEL() { grim "$OUT/toggle.png" 2>/dev/null; magick "$OUT/toggle.png" -format "%[pixel:p{$((W / 2)),$((H * 3 / 4))}]" info:; }
 
-        hyprctl dispatch chromakey:toggleall > /dev/null
+        hyprctl eval 'hl.plugin.hyprchromakey.toggle_all()' > /dev/null
         sleep 1
         OFF=$(PIXEL)
-        hyprctl dispatch chromakey:toggleall > /dev/null
+        hyprctl eval 'hl.plugin.hyprchromakey.toggle_all()' > /dev/null
         sleep 1
         ON=$(PIXEL)
 
-        echo "chromakey:toggleall reads $OFF then $ON"
+        echo "toggle_all() reads $OFF then $ON"
         case "$OFF:$ON" in
             srgb\(30,30,46\):srgb\(0,255,0\)) echo "PASS - the runtime switch works both ways" ;;
             *) echo "UNEXPECTED - the runtime switch did not flip the terminal back and forth" ;;

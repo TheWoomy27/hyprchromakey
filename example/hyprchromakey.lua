@@ -1,5 +1,5 @@
 -- Example hyprchromakey setup for a Lua config.
--- Verified against hyprland 0.56.2; see README.md for what each option does.
+-- Verified against hyprland 0.57.0; see README.md for what each option does.
 
 
 hl.plugin.load("/path/to/hyprchromakey/out/hyprchromakey.so") -- not needed if installed via hyprpm
@@ -18,6 +18,12 @@ hl.config { plugin = { hyprchromakey = {
 
     force_translucent = true,
 
+    -- fullscreen games and video go back to direct scanout
+    ignore_fullscreen = true,
+
+    -- leave images and video alone even where they brush a key color
+    min_region = 8,
+
     keys = table.concat({
         "rgb(1e1e2e)",
         "color rgb(181825), similarity 0.04",
@@ -31,7 +37,7 @@ hl.window_rule({ match = { class = "^(Alacritty)$" },    ["plugin:chromakey"] = 
 hl.window_rule({ match = { class = "^(mpv|imv)$" },      ["plugin:chromakey"] = "0" })
 hl.layer_rule({  match = { namespace = "^(waybar)$" },   ["plugin:chromakey"] = "1" })
 
--- plugin functions are plain lua functions, so they bind directly
-hl.bind("SUPER + K", hl.plugin.hyprchromakey.toggle_all)          -- the whole effect
-hl.bind("SUPER + SHIFT + K", hl.plugin.hyprchromakey.toggle)      -- just the active window
+-- plugin functions are looked up inside a closure, so a reloaded plugin is picked up
+hl.bind("SUPER + K", function() hl.plugin.hyprchromakey.toggle_all() end)          -- the whole effect
+hl.bind("SUPER + SHIFT + K", function() hl.plugin.hyprchromakey.toggle() end)      -- just the active window
 hl.bind("SUPER + ALT + K", function() hl.plugin.hyprchromakey.set("term") end)

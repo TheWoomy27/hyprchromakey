@@ -5,6 +5,7 @@
 
 #include <hyprland/src/config/values/types/BoolValue.hpp>
 #include <hyprland/src/config/values/types/FloatValue.hpp>
+#include <hyprland/src/config/values/types/IntValue.hpp>
 #include <hyprland/src/config/values/types/StringValue.hpp>
 
 #include <array>
@@ -31,6 +32,8 @@ struct SChromaKey {
     float                smoothness = 0.02F;
     float                opacity    = 0.F;
     eMatchMode           mode       = MATCH_RGB;
+    // only key pixels inside a flat run of the color at least this many buffer pixels long; 0 = off
+    int                  minRegion  = 0;
 };
 
 // a key as written in the config: unset fields fall back to the globals at commit time
@@ -39,6 +42,7 @@ struct SKeySpec {
     std::array<float, 3>      color   = {0.F, 0.F, 0.F};
     std::optional<float>      similarity, smoothness, opacity;
     std::optional<eMatchMode> mode;
+    std::optional<int>        minRegion;
 };
 
 struct SChromaProfile {
@@ -52,20 +56,19 @@ struct SChromaProfile {
 
 class CChromaConfig {
   public:
-    // registers all config values + keywords. Only valid inside pluginInit.
-    void registerConfig(HANDLE handle);
-
-    // config keyword parsing. Errors are surfaced to the user by the caller.
-    std::expected<void, std::string> addKeySpec(const std::string& value);
+    // registers all config values. Only valid inside pluginInit.
+    void                                        registerConfig(HANDLE handle);
 
     static std::expected<SKeySpec, std::string> parseKeySpec(const std::string& value);
 
-    void                             clearSpecs(); // on preReload
-    void                             commit();     // on reloaded: fold globals into specs, build profiles
+    // parse `keys`, fold the globals in and build the profiles
+    void                                        commit();
 
-    SP<SChromaProfile>               profile(const std::string& name) const;
+    SP<SChromaProfile>                          profile(const std::string& name) const;
     // resolves a window/layer rule value: on/off/<profile name>. nullptr means "not keyed".
     SP<SChromaProfile>                                                 resolveRule(const std::string& value) const;
+    // why `value` would not resolve to anything, for values that are not plainly "off"
+    std::expected<void, std::string>                                   checkRule(const std::string& value) const;
 
     SP<SChromaProfile>                                                 defaultWindowProfile() const;
     SP<SChromaProfile>                                                 defaultLayerProfile() const;
@@ -86,17 +89,18 @@ class CChromaConfig {
     bool                                                               enabled() const;
     bool                                                               forceTranslucent() const;
     bool                                                               mainSurfaceOnly() const;
+    bool                                                               ignoreFullscreen() const;
     float                                                              translucency() const;
 
   private:
-    std::vector<SKeySpec>                               m_specs;
     std::unordered_map<std::string, SP<SChromaProfile>> m_profiles;
     SP<SChromaProfile>                                  m_defaultWindows, m_defaultLayers;
     std::optional<bool>                                 m_enabledOverride;
     uint64_t                                            m_generation = 0;
     bool                                                m_registered = true;
 
-    SP<Config::Values::CBoolValue>                      m_enabled, m_forceTranslucent, m_mainSurfaceOnly;
+    SP<Config::Values::CBoolValue>                      m_enabled, m_forceTranslucent, m_mainSurfaceOnly, m_ignoreFullscreen;
+    SP<Config::Values::CIntValue>                       m_minRegion;
     SP<Config::Values::CFloatValue>                     m_similarity, m_smoothness, m_opacity, m_minAlpha, m_translucency;
     SP<Config::Values::CStringValue>                    m_match, m_defaultWindowsVal, m_defaultLayersVal, m_keys;
 };

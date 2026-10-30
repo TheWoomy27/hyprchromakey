@@ -62,6 +62,19 @@ static std::expected<float, std::string> parseUnitFloat(const std::string& field
     return f;
 }
 
+static std::expected<int, std::string> parseRegion(const std::string& value) {
+    int        i   = 0;
+    const auto RES = std::from_chars(value.data(), value.data() + value.length(), i);
+
+    if (RES.ec != std::errc{} || RES.ptr != value.data() + value.length())
+        return std::unexpected(std::format("region: \"{}\" is not a whole number", value));
+
+    if (i < 0 || i > MAX_REGION)
+        return std::unexpected(std::format("region: {} is out of range, expected 0 - {}", i, MAX_REGION));
+
+    return i;
+}
+
 static std::expected<std::array<float, 3>, std::string> parseKeyColor(const std::string& value) {
     // hyprland color syntax: #rgb, #rrggbb, 0xAARRGGBB, rgb(...), rgba(...)
     const auto RES = Config::ParserUtils::parseColor(value);
@@ -130,6 +143,11 @@ std::expected<SKeySpec, std::string> CChromaConfig::parseKeySpec(const std::stri
             if (!F)
                 return std::unexpected(F.error());
             spec.opacity = *F;
+        } else if (NAME == "region") {
+            const auto R = parseRegion(VAL);
+            if (!R)
+                return std::unexpected(R.error());
+            spec.minRegion = *R;
         } else if (NAME == "match") {
             const auto M = matchModeFromString(VAL);
             if (!M)
@@ -149,19 +167,6 @@ std::expected<SKeySpec, std::string> CChromaConfig::parseKeySpec(const std::stri
     return spec;
 }
 
-std::expected<void, std::string> CChromaConfig::addKeySpec(const std::string& value) {
-    const auto SPEC = parseKeySpec(value);
-    if (!SPEC)
-        return std::unexpected(SPEC.error());
-
-    m_specs.emplace_back(*SPEC);
-    return {};
-}
-
-void CChromaConfig::clearSpecs() {
-    m_specs.clear();
-}
-
 void CChromaConfig::commit() {
     ++m_generation;
     m_profiles.clear();
@@ -169,9 +174,9 @@ void CChromaConfig::commit() {
     if (!m_registered)
         return;
 
-    auto specs = m_specs;
+    std::vector<SKeySpec> specs;
 
-    // the `keys` value holds `;`-separated entries, for setups that can't use keywords
+    // `;`-separated entries, each one key
     for (const auto& ENTRY : splitTopLevel(m_keys->value(), ';')) {
         const auto SPEC = parseKeySpec(ENTRY);
         if (SPEC)
@@ -206,6 +211,7 @@ void CChromaConfig::commit() {
             .smoothness = SPEC.smoothness.value_or(std::clamp(sc<float>(m_smoothness->value()), 0.F, 1.F)),
             .opacity    = SPEC.opacity.value_or(std::clamp(sc<float>(m_opacity->value()), 0.F, 1.F)),
             .mode       = SPEC.mode.value_or(GLOBALMODE.value_or(MATCH_RGB)),
+            .minRegion  = SPEC.minRegion.value_or(std::clamp(sc<int>(m_minRegion->value()), 0, MAX_REGION)),
         });
     }
 
@@ -220,16 +226,40 @@ SP<SChromaProfile> CChromaConfig::profile(const std::string& name) const {
     return IT == m_profiles.end() ? nullptr : IT->second;
 }
 
+static bool isOffValue(const std::string& v) {
+    return v.empty() || v == "0" || v == "off" || v == "false" || v == "no" || v == "disable" || v == "disabled";
+}
+
+static bool isOnValue(const std::string& v) {
+    return v == "1" || v == "on" || v == "true" || v == "yes" || v == "enable" || v == "enabled";
+}
+
+std::expected<void, std::string> CChromaConfig::checkRule(const std::string& value) const {
+    const auto VAL = trim(value);
+
+    if (isOffValue(VAL))
+        return {};
+
+    if (isOnValue(VAL))
+        return profile("default") ? std::expected<void, std::string>{} :
+                                    std::unexpected(std::format("\"{}\" wants the default profile, but every key belongs to a named profile", VAL));
+
+    if (!profile(VAL))
+        return std::unexpected(std::format("no chromakey profile named \"{}\"", VAL));
+
+    return {};
+}
+
 SP<SChromaProfile> CChromaConfig::resolveRule(const std::string& value) const {
     const auto VAL = trim(value);
 
-    if (VAL.empty() || VAL == "0" || VAL == "off" || VAL == "false" || VAL == "no" || VAL == "disable" || VAL == "disabled")
+    if (isOffValue(VAL))
         return nullptr;
 
-    if (VAL == "1" || VAL == "on" || VAL == "true" || VAL == "yes" || VAL == "enable" || VAL == "enabled") {
+    if (isOnValue(VAL)) {
         const auto DEFAULT = profile("default");
         if (!DEFAULT)
-            chromaLog(Log::ERR, "\"{}\" wants the default profile, but no key colors are defined outside of a named profile", VAL);
+            chromaLog(Log::ERR, "\"{}\" wants the default profile, but every key belongs to a named profile", VAL);
         return DEFAULT;
     }
 
@@ -266,6 +296,8 @@ uint64_t CChromaConfig::fingerprint() const {
     MIX(m_enabled->value());
     MIX(m_mainSurfaceOnly->value());
     MIX(m_forceTranslucent->value());
+    MIX(m_ignoreFullscreen->value());
+    MIX(sc<uint64_t>(m_minRegion->value()));
     NUM(m_similarity->value());
     NUM(m_smoothness->value());
     NUM(m_opacity->value());
@@ -304,6 +336,10 @@ bool CChromaConfig::mainSurfaceOnly() const {
     return m_mainSurfaceOnly->value();
 }
 
+bool CChromaConfig::ignoreFullscreen() const {
+    return m_ignoreFullscreen->value();
+}
+
 float CChromaConfig::translucency() const {
     return std::clamp(sc<float>(m_translucency->value()), 0.F, 1.F);
 }
@@ -326,6 +362,10 @@ void CChromaConfig::registerConfig(HANDLE handle) {
     m_smoothness = ADD(makeShared<CFloatValue>("plugin:hyprchromakey:smoothness", "default fade band above the similarity threshold", 0.02F, SFloatValueOptions{UNIT}));
     m_opacity    = ADD(makeShared<CFloatValue>("plugin:hyprchromakey:opacity", "default alpha given to fully keyed pixels", 0.F, SFloatValueOptions{UNIT}));
     m_minAlpha   = ADD(makeShared<CFloatValue>("plugin:hyprchromakey:min_alpha", "only key pixels whose source alpha is at least this", 0.99F, SFloatValueOptions{UNIT}));
+    m_minRegion  = ADD(makeShared<CIntValue>("plugin:hyprchromakey:min_region",
+                                            "only key pixels lying in a flat run of the key color at least this many buffer pixels long, so media that merely brushes "
+                                            "the color is left alone. 0 disables",
+                                            0, SIntValueOptions{.min = 0, .max = MAX_REGION}));
     m_match      = ADD(makeShared<CStringValue>("plugin:hyprchromakey:match", "default color comparison: rgb, hsv or chroma", "rgb"));
     m_keys       = ADD(makeShared<CStringValue>("plugin:hyprchromakey:keys", "`;`-separated key definitions, same syntax as the chromakey keyword", ""));
 
@@ -333,6 +373,7 @@ void CChromaConfig::registerConfig(HANDLE handle) {
     m_defaultLayersVal  = ADD(makeShared<CStringValue>("plugin:hyprchromakey:default_layers", "profile applied to layers without a matching rule: off, on or a profile name", "off"));
 
     m_forceTranslucent = ADD(makeShared<CBoolValue>("plugin:hyprchromakey:force_translucent", "mark keyed surfaces translucent so hyprland composites and blurs behind them", true));
+    m_ignoreFullscreen = ADD(makeShared<CBoolValue>("plugin:hyprchromakey:ignore_fullscreen", "leave fullscreen windows unkeyed, so they can be scanned out directly", false));
     m_mainSurfaceOnly  = ADD(makeShared<CBoolValue>("plugin:hyprchromakey:main_surface_only", "only key the main surface, leaving popups and subsurfaces untouched", false));
     m_translucency     = ADD(makeShared<CFloatValue>("plugin:hyprchromakey:translucency", "alpha used by force_translucent. 1.0 disables the nudge", 0.9995F, SFloatValueOptions{UNIT}));
 }
