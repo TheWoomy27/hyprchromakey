@@ -7,7 +7,10 @@ authors = ["TheWoomy27"]
 # whenever code lands - otherwise every hyprpm user keeps building the old commit forever.
 commit_pins = [
     # v Hyprland                                  v hyprchromakey
+    ["36b2e0cfe0c6094dbc47bd42a437431315bb3087", "d7306370e430fd45572b2e586b15db126c5b2268"], # v0.56.0
+    ["5c9377c15f85c50648f35ca5a213754f95b93ca0", "d7306370e430fd45572b2e586b15db126c5b2268"], # v0.56.1
     ["efb50993780079460b0cbed1363e2166a2de1d9f", "d7306370e430fd45572b2e586b15db126c5b2268"], # v0.56.2
+    ["0aa6745f705f2c4b0a5004eb019ef76e5bbdb426", "27b6b243d573481bc0488fd6a22ef2872dea00f4"], # v0.57.0
 ]
 
 [hyprchromakey]
