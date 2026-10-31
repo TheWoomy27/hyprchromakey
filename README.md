@@ -26,8 +26,8 @@ make
 hyprctl plugin load "$PWD/out/hyprchromakey.so"
 ```
 
-Plugins have no stable ABI, so rebuild after every Hyprland update. The plugin logs a warning if
-it detects it was built against a different Hyprland commit than the one running.
+Rebuild after every Hyprland update. The plugin logs a warning if it detects it was built against
+a different Hyprland commit than the one running.
 
 
 ## Configuration
@@ -62,7 +62,7 @@ hl.config { plugin = { hyprchromakey = {
     -- video that happen to brush the color stay intact. 0 is off; 8 is a good start
     min_region = 0,
 
-    -- makes keyed surfaces count as translucent so hyprland composites and blurs behind them. 
+    -- makes keyed surfaces count as translucent so hyprland composites and blurs behind them
     force_translucent = true,
     translucency      = 0.9995,
 
@@ -159,7 +159,8 @@ almost never does: its pixels fade into near misses of the key instead of repeat
 
 Start at `8`. Measured on a synthetic dark video frame against a matching key, `0` let 99.9% of
 the frame show through, `4` about 0.6%, and `8` none of it, while 11 pt terminal text keyed
-virtually the same as with it off. The length is in the window's own buffer pixels, so on a scaled monitor allow for the scale.
+virtually the same as with it off. The length is in the window's own buffer pixels, so on a
+scaled monitor allow for the scale.
 
 What it cannot tell apart is media that genuinely contains a flat patch of the key color, such as
 a screenshot of the same app, or a lone key-colored speck in an otherwise bright image. It costs a
@@ -171,8 +172,8 @@ handful of extra texture samples per keyed pixel, and nothing when off.
 Rules select what gets keyed, using the `plugin:chromakey` effect the plugin registers. The value
 is `1`/`on` for the default profile, `0`/`off` to exclude, or a profile name.
 
-Any `match:` property Hyprland supports works, so you can scope by `class`, `title`, `floating`,
-`fullscreen`, `xwayland`, `workspace`, `tag` and the rest.
+Anything Hyprland accepts in a rule's `match` table works, so you can scope by `class`, `title`,
+`floating`, `fullscreen`, `xwayland`, `workspace`, `tag` and the rest.
 
 To key most things and list the exceptions instead, set `default_windows = "on"` and use `0` rules
 to carve windows out. Rules always beat the default.
@@ -227,8 +228,7 @@ hyprctl dispatch 'hl.plugin.hyprchromakey.toggle_all'
 hyprctl dispatch 'function() hl.plugin.hyprchromakey.set_all("off") end'
 ```
 
-Hyprland 0.57 removed plugin dispatchers, so these functions are the plugin's whole runtime
-interface; the old `chromakey:*` dispatchers are gone.
+Hyprland 0.57 removed plugin dispatchers, so these functions replace the old `chromakey:*` ones.
 
 ### Why not just write to `enabled`?
 
@@ -264,13 +264,12 @@ windows and layers are keyed right now. `hyprctl -j chromakey` gives the same as
   `similarity` or switch that key to `hsv`.
 
 
-
 ## How it works
 
-Hyprland compiles a fragment shader variant per (shader, feature-flag) combination and picks one
-for every texture it draws. hyprchromakey hooks that choice: when the surface being drawn belongs to
-a keyed window or layer, it hands back its own copy of the very same shader with the key test
-spliced in right after the texture sample.
+Hyprland compiles a variant of each fragment shader for every combination of features it needs,
+and picks one for every texture it draws. hyprchromakey hooks that choice: when the surface being
+drawn belongs to a keyed window or layer, it hands back its own copy of the very same shader with
+the key test spliced in right after the texture sample.
 
 Because it is still Hyprland's shader, everything downstream keeps working: color management,
 rounded corners, tint, blur blending, motion blur. New feature combinations are patched the first
@@ -285,22 +284,22 @@ to nothing at all. So three things happen to keyed surfaces, all under `force_tr
 
 - their alpha is nudged to `translucency` (0.9995 by default), well under one 8-bit step;
   invisible, but enough that Hyprland composites and blends behind them;
-- the window's `opaque()` check reports false for them, because a keyed window genuinely isn't opaque;
-- the **opaque region the client declares** is cleared each frame.
+- the window's `opaque()` check reports false for them, because a keyed window genuinely isn't
+  opaque;
+- the opaque region the client declares is cleared each frame.
 
-The second one matters more than it looks. `opaque()` reads the window's *own* alpha, which is
-below 1 while an open or move animation is running and exactly 1 once it settles, so without it
-blur switches on for the duration of every animation and off again at rest, and a fullscreen keyed
-window becomes eligible for direct scanout, which would bypass compositing altogether.
+`opaque()` reads the window's own alpha, which is below 1 while an open or move animation runs and
+exactly 1 once it settles. Without the second step, blur would switch on for every animation and
+off again at rest, and a fullscreen keyed window would qualify for direct scanout, which bypasses
+compositing altogether.
 
-The third is the subtle one. A client declares which parts of its surface are fully opaque, and a
-keyed window's client has no idea we are about to punch holes in it, so it goes on declaring itself
-opaque. Once such a surface is drawn at alpha >= 1, Hyprland inverts that region, finds nothing
-translucent left to composite behind, and switches blur off for it - and the same region drives
-occlusion culling. That only bites when something returns alpha to exactly 1 mid-animation, which
-is what an **overshoot** bezier does on its way past the target, so blur would snap off for
-precisely the length of the overshoot. Clearing the declared region fixes both, and is simply true
-of a keyed surface.
+The third step is about what the client says. A client declares which parts of its surface are
+fully opaque, and a keyed window's client has no idea we punch holes in it, so it goes on declaring
+itself opaque. Once such a surface is drawn at alpha >= 1, Hyprland inverts that region, finds
+nothing translucent left to composite behind, and switches blur off for it; the same region drives
+occlusion culling. That bites whenever alpha returns to exactly 1 mid-animation, which an
+overshooting bezier does on its way past the target, so blur would drop out for the length of the
+overshoot. Clearing the declared region fixes both, and is simply true of a keyed surface.
 
 Set `force_translucent = false` to turn all three off; keying will then only work on windows that
 are already translucent for other reasons.
@@ -308,8 +307,8 @@ are already translucent for other reasons.
 ### Blur
 
 A keyed window counts as translucent, so Hyprland blurs behind it whenever `decoration:blur` is
-on, including behind the pixels you keyed out. That is usually the point. To keep the keying but
-drop the blur, use the stock rule alongside your chromakey one:
+on, including behind the pixels you keyed out, which is usually what you want. To keep the keying
+but drop the blur, use the stock rule alongside your chromakey one:
 
 ```lua
 hl.window_rule({ match = { class = "^(kitty)$" }, ["plugin:chromakey"] = "1", no_blur = true })
@@ -321,6 +320,7 @@ the blurred wallpaper happens to come near a key color.
 
 Blur behind a keyed window is not free: Hyprland is now compositing and blurring a region it used
 to skip entirely. On a large keyed window that costs real GPU time.
+
 
 ## Known issues
 
@@ -346,8 +346,8 @@ make -C tests HYPRLAND_SRC=/path/to/Hyprland/checkout
   resulting alpha: thresholds, the smooth band, multiple keys, the alpha gate, each match mode,
   and `min_region` against a synthetic window with text, a letter counter and noisy media.
 - `shader_patch_test` preprocesses Hyprland's own shader sources exactly as Hyprland does, splices
-  the chroma code into every feature variant, and compiles each one. **This is the test that tells
-  you a new Hyprland release moved something.**
+  the chroma code into every feature variant, and compiles each one. It is the test that catches a
+  Hyprland release changing its shaders.
 
 There is also an end-to-end check that runs a throwaway nested Hyprland, loads the plugin into it
 and screenshots the result. Your own session is never involved:
