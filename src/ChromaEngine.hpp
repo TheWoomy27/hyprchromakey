@@ -58,7 +58,6 @@ class CChromaEngine {
 
     std::string        status(bool json);
 
-    bool               hooked() const;
     bool               collided() const;
 
   private:

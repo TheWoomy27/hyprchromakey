@@ -19,7 +19,6 @@ enum eMatchMode : uint8_t {
     MATCH_RGB = 0, // largest per-channel difference. predictable, good for flat UI colors
     MATCH_HSV,     // hue/saturation/value difference. tolerates shading of the same hue
     MATCH_CHROMA,  // hue and saturation only, ignoring how light or dark the pixel is
-    MATCH_LAST,
 };
 
 std::optional<eMatchMode> matchModeFromString(const std::string& s);
@@ -66,31 +65,28 @@ class CChromaConfig {
 
     SP<SChromaProfile>                          profile(const std::string& name) const;
     // resolves a window/layer rule value: on/off/<profile name>. nullptr means "not keyed".
-    SP<SChromaProfile>                                                 resolveRule(const std::string& value) const;
+    SP<SChromaProfile>                          resolveRule(const std::string& value) const;
     // why `value` would not resolve to anything, for values that are not plainly "off"
-    std::expected<void, std::string>                                   checkRule(const std::string& value) const;
+    std::expected<void, std::string>            checkRule(const std::string& value) const;
 
-    SP<SChromaProfile>                                                 defaultWindowProfile() const;
-    SP<SChromaProfile>                                                 defaultLayerProfile() const;
+    SP<SChromaProfile>                          defaultWindowProfile() const;
+    SP<SChromaProfile>                          defaultLayerProfile() const;
 
-    const std::unordered_map<std::string, SP<SChromaProfile>>&         profiles() const;
+    const std::unordered_map<std::string, SP<SChromaProfile>>& profiles() const;
 
-    // A cheap hash of every value we care about. `hyprctl eval` and `hyprctl keyword` change config
-    // values without emitting a reload or any other signal, so this is compared each frame to
-    // notice changes that way. See pollConfigChanges() for what that does and does not catch.
-    uint64_t                                                           fingerprint() const;
+    // A cheap hash of every value we read, compared each frame to catch changes made through
+    // `hyprctl eval`, which emits no reload. See pollConfigChanges().
+    uint64_t                                    fingerprint() const;
 
     // Runtime master switch, layered over plugin:hyprchromakey:enabled. nullopt follows the config.
-    // Unlike a config edit this is ours, so we can damage the screen the moment it changes instead
-    // of waiting to notice.
-    void                                                               setEnabledOverride(std::optional<bool> value);
-    bool                                                               enabledOverridden() const;
+    void                                        setEnabledOverride(std::optional<bool> value);
+    bool                                        enabledOverridden() const;
 
-    bool                                                               enabled() const;
-    bool                                                               forceTranslucent() const;
-    bool                                                               mainSurfaceOnly() const;
-    bool                                                               ignoreFullscreen() const;
-    float                                                              translucency() const;
+    bool                                        enabled() const;
+    bool                                        forceTranslucent() const;
+    bool                                        mainSurfaceOnly() const;
+    bool                                        ignoreFullscreen() const;
+    float                                       translucency() const;
 
   private:
     std::unordered_map<std::string, SP<SChromaProfile>> m_profiles;

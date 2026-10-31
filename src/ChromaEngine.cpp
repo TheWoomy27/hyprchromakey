@@ -59,9 +59,8 @@ static WP<CShader> hkGetShaderVariant(void* thisptr, ePreparedFragmentShader fra
 }
 
 // Hyprland treats an opaque window as "nothing to composite behind": it skips blur, keeps
-// blending off and even allows direct scanout. A keyed window is none of those things, but
-// nothing in opaque() knows that - it reads the window's own alpha, which is 1 once the open/move
-// animation finishes. That is why blur appeared during transitions and vanished at rest.
+// blending off and even allows direct scanout. opaque() only looks at the window's own alpha,
+// which is 1 at rest, so a keyed window would get blur while it animates and lose it once still.
 static bool hkWindowOpaque(void* thisptr, const SWindowRenderPresentation& presentation) {
     if (g_chromaEngine.keyedAndTranslucent(g_chromaEngine.windowForPresentation(thisptr)))
         return false;
@@ -116,9 +115,8 @@ bool CChromaEngine::install(HANDLE handle) {
         return hook;
     };
 
-    g_renderTextureHook = HOOK("renderTexture", "Render::GL::CHyprOpenGLImpl::renderTexture(", (void*)&hkRenderTexture);
-    g_renderTextureInternalHook =
-        HOOK("renderTextureInternal", "Render::GL::CHyprOpenGLImpl::renderTextureInternal(", (void*)&hkRenderTextureInternal);
+    g_renderTextureHook         = HOOK("renderTexture", "Render::GL::CHyprOpenGLImpl::renderTexture(", (void*)&hkRenderTexture);
+    g_renderTextureInternalHook = HOOK("renderTextureInternal", "Render::GL::CHyprOpenGLImpl::renderTextureInternal(", (void*)&hkRenderTextureInternal);
     g_shaderVariantHook =
         HOOK("getShaderVariant", "Render::GL::CHyprOpenGLImpl::getShaderVariant(Render::ePreparedFragmentShader, Render::SShaderVariant const&)", (void*)&hkGetShaderVariant);
 
@@ -154,10 +152,6 @@ void CChromaEngine::uninstall() {
 void CChromaEngine::unregisterEffects() {
     Desktop::Rule::windowEffects()->unregisterEffect("plugin:chromakey");
     Desktop::Rule::layerEffects()->unregisterEffect("plugin:chromakey");
-}
-
-bool CChromaEngine::hooked() const {
-    return m_hooked;
 }
 
 bool CChromaEngine::collided() const {
@@ -263,9 +257,6 @@ SP<SChromaProfile> CChromaEngine::profileForLayer(PHLLS layer) {
 // Hyprland skips compositing (and blur) behind anything it believes is fully opaque, so a keyed
 // surface has to be marked ever so slightly translucent or its transparent pixels would reveal
 // nothing at all. The nudge is far below one 8-bit step, so it never changes what you see.
-//
-// Note this does not survive an animation whose curve overshoots past 1.0 - the product it keeps
-// under 1 gets scaled back over by the overshoot. See "Known issue" in the README.
 void CChromaEngine::applyTranslucency(SP<CWLSurfaceResource> surface, PHLWINDOW window, PHLLS layer) {
     const float TARGET = g_chromaConfig.translucency();
     if (TARGET >= 1.F)
@@ -333,12 +324,11 @@ void CChromaEngine::damageEverything() {
 // left to composite behind, and switches blur off for it entirely (ElementRenderer, "amazing hack:
 // the surface has an opaque region"). The same region drives occlusion culling.
 //
-// A keyed window's client has no idea we are about to punch holes in it, so it goes on declaring
-// itself fully opaque and both of those decisions come out wrong. It only shows up once something
-// pushes alpha back to 1 mid-animation - an overshoot curve does exactly that on its way past the
-// target - which is why blur would snap off for precisely the length of the overshoot.
+// A keyed window's client has no idea we punch holes in it, so it goes on declaring itself fully
+// opaque and both decisions come out wrong whenever alpha is back at 1 - including midway through
+// an overshooting animation curve, where blur would drop out for the length of the overshoot.
 //
-// So the declared region gets cleared for keyed surfaces, which is simply true of them. Clients
+// So the declared region is cleared for keyed surfaces, which is simply true of them. Clients
 // re-declare it on their next commit, hence doing this every frame.
 void CChromaEngine::clearOpaqueRegions() {
     if (!g_chromaConfig.enabled() || !g_chromaConfig.forceTranslucent())
@@ -391,10 +381,8 @@ void CChromaEngine::refreshAll() {
     damageEverything();
 }
 
-// Flipping plugin:hyprchromakey:enabled through `hyprctl eval` works, but only becomes
-// visible on the next frame the compositor happens to draw - see pollConfigChanges(). Going through
-// our own override instead means the toggle takes effect at once, on every window, whether or not
-// any of them is focused or drawing.
+// An override rather than a config write, so the change lands at once instead of waiting for the
+// next frame to notice it - see pollConfigChanges().
 void CChromaEngine::setEnabled(std::optional<bool> value) {
     g_chromaConfig.setEnabledOverride(value);
     refreshAll();

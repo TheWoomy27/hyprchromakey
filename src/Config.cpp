@@ -78,28 +78,14 @@ static std::expected<int, std::string> parseRegion(const std::string& value) {
 static std::expected<std::array<float, 3>, std::string> parseKeyColor(const std::string& value) {
     // hyprland color syntax: #rgb, #rrggbb, 0xAARRGGBB, rgb(...), rgba(...)
     const auto RES = Config::ParserUtils::parseColor(value);
-    if (RES)
-        return std::array<float, 3>{
-            sc<float>((*RES >> 16) & 0xFF) / 255.F,
-            sc<float>((*RES >> 8) & 0xFF) / 255.F,
-            sc<float>(*RES & 0xFF) / 255.F,
-        };
+    if (!RES)
+        return std::unexpected(RES.error());
 
-    // bare "r, g, b" in 0 - 255
-    const auto PARTS = splitTopLevel(value, ',');
-    if (PARTS.size() == 3) {
-        std::array<float, 3> col{};
-        for (size_t i = 0; i < 3; ++i) {
-            float      f   = 0.F;
-            const auto NUM = std::from_chars(PARTS[i].data(), PARTS[i].data() + PARTS[i].length(), f);
-            if (NUM.ec != std::errc{} || NUM.ptr != PARTS[i].data() + PARTS[i].length())
-                return std::unexpected(RES.error());
-            col[i] = std::clamp(f, 0.F, 255.F) / 255.F;
-        }
-        return col;
-    }
-
-    return std::unexpected(RES.error());
+    return std::array<float, 3>{
+        sc<float>((*RES >> 16) & 0xFF) / 255.F,
+        sc<float>((*RES >> 8) & 0xFF) / 255.F,
+        sc<float>(*RES & 0xFF) / 255.F,
+    };
 }
 
 std::expected<SKeySpec, std::string> CChromaConfig::parseKeySpec(const std::string& value) {
@@ -109,7 +95,7 @@ std::expected<SKeySpec, std::string> CChromaConfig::parseKeySpec(const std::stri
     for (const auto& FIELD : splitTopLevel(value, ',')) {
         const auto SPACE = FIELD.find(' ');
 
-        // a lone field is taken as the color, so `chromakey = rgb(11111b)` just works
+        // a lone field is taken as the color, so `rgb(11111b)` on its own is a key
         if (SPACE == std::string::npos) {
             const auto COL = parseKeyColor(FIELD);
             if (!COL)
@@ -251,23 +237,16 @@ std::expected<void, std::string> CChromaConfig::checkRule(const std::string& val
 }
 
 SP<SChromaProfile> CChromaConfig::resolveRule(const std::string& value) const {
-    const auto VAL = trim(value);
+    if (const auto CHECK = checkRule(value); !CHECK) {
+        chromaLog(Log::ERR, "{}", CHECK.error());
+        return nullptr;
+    }
 
+    const auto VAL = trim(value);
     if (isOffValue(VAL))
         return nullptr;
 
-    if (isOnValue(VAL)) {
-        const auto DEFAULT = profile("default");
-        if (!DEFAULT)
-            chromaLog(Log::ERR, "\"{}\" wants the default profile, but every key belongs to a named profile", VAL);
-        return DEFAULT;
-    }
-
-    const auto PROFILE = profile(VAL);
-    if (!PROFILE)
-        chromaLog(Log::ERR, "no chromakey profile named \"{}\" is defined", VAL);
-
-    return PROFILE;
+    return profile(isOnValue(VAL) ? "default" : VAL);
 }
 
 SP<SChromaProfile> CChromaConfig::defaultWindowProfile() const {
@@ -286,10 +265,10 @@ uint64_t CChromaConfig::fingerprint() const {
     if (!m_registered)
         return 0;
 
-    uint64_t hash = 0;
-    const auto MIX = [&hash](uint64_t v) { hash = (hash ^ (v + 0x9e3779b97f4a7c15ULL + (hash << 6) + (hash >> 2))); };
-    const auto NUM = [&MIX](float f) { MIX(std::bit_cast<uint32_t>(f)); };
-    const auto STR = [&MIX](const std::string& v) { MIX(std::hash<std::string_view>{}(v)); };
+    uint64_t   hash = 0;
+    const auto MIX  = [&hash](uint64_t v) { hash = (hash ^ (v + 0x9e3779b97f4a7c15ULL + (hash << 6) + (hash >> 2))); };
+    const auto NUM  = [&MIX](float f) { MIX(std::bit_cast<uint32_t>(f)); };
+    const auto STR  = [&MIX](const std::string& v) { MIX(std::hash<std::string_view>{}(v)); };
 
     // deliberately the raw value, not enabled(): a runtime override is not a config change and
     // must not drag the whole config through a rebuild
@@ -367,7 +346,7 @@ void CChromaConfig::registerConfig(HANDLE handle) {
                                             "the color is left alone. 0 disables",
                                             0, SIntValueOptions{.min = 0, .max = MAX_REGION}));
     m_match      = ADD(makeShared<CStringValue>("plugin:hyprchromakey:match", "default color comparison: rgb, hsv or chroma", "rgb"));
-    m_keys       = ADD(makeShared<CStringValue>("plugin:hyprchromakey:keys", "`;`-separated key definitions, same syntax as the chromakey keyword", ""));
+    m_keys       = ADD(makeShared<CStringValue>("plugin:hyprchromakey:keys", "`;`-separated key definitions: a color, optionally followed by `name value` fields", ""));
 
     m_defaultWindowsVal = ADD(makeShared<CStringValue>("plugin:hyprchromakey:default_windows", "profile applied to windows without a matching rule: off, on or a profile name", "off"));
     m_defaultLayersVal  = ADD(makeShared<CStringValue>("plugin:hyprchromakey:default_layers", "profile applied to layers without a matching rule: off, on or a profile name", "off"));

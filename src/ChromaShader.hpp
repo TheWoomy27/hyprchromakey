@@ -37,11 +37,11 @@ class CChromaShaders {
 
     using VariantKey = std::pair<Render::ePreparedFragmentShader, Render::SShaderVariant>;
 
-    SVariant*                                  compile(Render::ePreparedFragmentShader frag, const Render::SShaderVariant& variant);
+    SVariant*                      compile(Render::ePreparedFragmentShader frag, const Render::SShaderVariant& variant);
 
-    std::map<VariantKey, SVariant>             m_variants;
+    std::map<VariantKey, SVariant> m_variants;
     // shaders we already tried and failed to build, so we don't recompile every frame
-    std::set<VariantKey>                       m_broken;
+    std::set<VariantKey>           m_broken;
 };
 
 inline CChromaShaders g_chromaShaders;

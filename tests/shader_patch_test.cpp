@@ -12,33 +12,20 @@
 #include <format>
 #include <fstream>
 #include <iostream>
-#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include "../src/ChromaGLSL.hpp"
 
-static std::string       g_shaderDir;
-static std::string       g_overrideDefines;
-static std::map<std::string, std::string> g_includes;
+static std::string g_shaderDir;
+static std::string g_overrideDefines;
 
 static std::string readFile(const std::string& path) {
     std::ifstream     f(path);
     std::stringstream ss;
     ss << f.rdbuf();
     return ss.str();
-}
-
-// mirrors CShaderLoader::loadShader: defines get injected after the #version/#extension header
-static std::string loadShader(const std::string& filename) {
-    auto src = readFile(g_shaderDir + "/" + filename);
-    if (g_overrideDefines.empty())
-        return src;
-
-    // hyprland replaces the contents of defines.h with the computed defines; do the same by
-    // stashing them as the include payload
-    return src;
 }
 
 static glsl_include_result_t* includeLocal(void* ctx, const char* headerName, const char* includerName, size_t depth) {

@@ -1,9 +1,5 @@
 # Builds the plugin against the current Hyprland package. Runs daily so an upstream
 # release that breaks the plugin API shows up here rather than in someone's session.
-#
-# Nothing here reports success anywhere - a green run is silent. GitHub emails you on
-# failure. If you also want to be sure successes never notify, set
-# Settings -> Notifications -> Actions -> "Only notify for failed workflows".
 
 name: build
 

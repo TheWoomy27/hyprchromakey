@@ -75,12 +75,10 @@ static PHLWINDOW windowFromArg(const std::string& arg) {
 
 static void reloadConfigState();
 
-// `hyprctl eval` changes config values without emitting a reload, without
-// tripping hyprland's prop refresher and without damaging anything, so nothing tells us the config
-// moved. Comparing a cheap hash per frame catches it - but only on a frame, and an idle compositor
-// draws none, so a change made while nothing is moving lands whenever the screen next redraws for
-// any reason. That is why the runtime switches below flip an override we own and damage the screen
-// themselves rather than writing to the config.
+// `hyprctl eval` changes config values without emitting a reload, running hyprland's prop
+// refresher or damaging anything, so nothing announces it. Comparing a hash each frame catches it,
+// but an idle compositor draws no frames, so such a change lands whenever the screen next redraws.
+// The runtime switches below avoid that by flipping an override and damaging the screen themselves.
 static void pollConfigChanges() {
     static std::optional<uint64_t> s_last;
 
@@ -118,9 +116,9 @@ static std::optional<std::optional<bool>> parseSwitch(const std::string& value) 
 
 // ---------------------------------------------------------------------------- lua api
 
-// Since 0.57 hyprland has no dispatchers or config keywords for plugins, so these are the plugin's
-// whole runtime interface. They are plain lua functions: wrap them in a closure for hl.bind, or
-// call them through `hyprctl eval`.
+// Hyprland has no dispatchers or config keywords for plugins, so these are the plugin's whole
+// runtime interface. They are plain lua functions: wrap them in a closure for hl.bind, or call them
+// through `hyprctl eval`.
 //
 // The ones acting on the focused window quietly do nothing when nothing is focused - they are
 // usually on a key, and an error there would only pop up the error overlay. Naming a window that
